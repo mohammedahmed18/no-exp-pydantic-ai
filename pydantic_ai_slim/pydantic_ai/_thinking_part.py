@@ -2,8 +2,8 @@ from __future__ import annotations as _annotations
 
 from pydantic_ai.messages import TextPart, ThinkingPart
 
-START_THINK_TAG = '<think>'
-END_THINK_TAG = '</think>'
+START_THINK_TAG = "<think>"
+END_THINK_TAG = "</think>"
 
 
 def split_content_into_text_and_thinking(content: str) -> list[ThinkingPart | TextPart]:
@@ -16,21 +16,30 @@ def split_content_into_text_and_thinking(content: str) -> list[ThinkingPart | Te
     something else, we just match the tag to make it easier for other models that don't support the `ThinkingPart`.
     """
     parts: list[ThinkingPart | TextPart] = []
+    pos = 0
+    len_start = len(START_THINK_TAG)
+    len_end = len(END_THINK_TAG)
+    content_len = len(content)
 
-    start_index = content.find(START_THINK_TAG)
-    while start_index >= 0:
-        before_think, content = content[:start_index], content[start_index + len(START_THINK_TAG) :]
-        if before_think:
-            parts.append(TextPart(content=before_think))
-        end_index = content.find(END_THINK_TAG)
-        if end_index >= 0:
-            think_content, content = content[:end_index], content[end_index + len(END_THINK_TAG) :]
-            parts.append(ThinkingPart(content=think_content))
-        else:
-            # We lose the `<think>` tag, but it shouldn't matter.
-            parts.append(TextPart(content=content))
-            content = ''
-        start_index = content.find(START_THINK_TAG)
-    if content:
-        parts.append(TextPart(content=content))
+    while pos < content_len:
+        start_index = content.find(START_THINK_TAG, pos)
+        if start_index == -1:
+            # The rest is plain text
+            if pos < content_len:
+                parts.append(TextPart(content=content[pos:]))
+            break
+        # Add text before <think> as TextPart, if any
+        if start_index > pos:
+            parts.append(TextPart(content=content[pos:start_index]))
+        # Move after <think> tag
+        start_think_content = start_index + len_start
+        end_index = content.find(END_THINK_TAG, start_think_content)
+        if end_index == -1:
+            # No closing tag, treat the rest as plain text
+            parts.append(TextPart(content=content[start_think_content:]))
+            break
+        # Add the thinking part
+        parts.append(ThinkingPart(content=content[start_think_content:end_index]))
+        pos = end_index + len_end
+
     return parts
