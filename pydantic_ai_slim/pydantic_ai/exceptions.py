@@ -9,13 +9,13 @@ else:
     ExceptionGroup = ExceptionGroup  # pragma: lax no cover
 
 __all__ = (
-    'ModelRetry',
-    'UserError',
-    'AgentRunError',
-    'UnexpectedModelBehavior',
-    'UsageLimitExceeded',
-    'ModelHTTPError',
-    'FallbackExceptionGroup',
+    "ModelRetry",
+    "UserError",
+    "AgentRunError",
+    "UnexpectedModelBehavior",
+    "UsageLimitExceeded",
+    "ModelHTTPError",
+    "FallbackExceptionGroup",
 )
 
 
@@ -72,20 +72,19 @@ class UnexpectedModelBehavior(AgentRunError):
 
     def __init__(self, message: str, body: str | None = None):
         self.message = message
-        if body is None:
-            self.body: str | None = None
-        else:
+        if body is not None:
             try:
                 self.body = json.dumps(json.loads(body), indent=2)
             except ValueError:
                 self.body = body
+        else:
+            self.body = None
         super().__init__(message)
 
     def __str__(self) -> str:
-        if self.body:
-            return f'{self.message}, body:\n{self.body}'
-        else:
-            return self.message
+        if self.body is not None:
+            return f"{self.message}, body:\n{self.body}"
+        return self.message
 
 
 class ModelHTTPError(AgentRunError):
@@ -107,7 +106,7 @@ class ModelHTTPError(AgentRunError):
         self.status_code = status_code
         self.model_name = model_name
         self.body = body
-        message = f'status_code: {status_code}, model_name: {model_name}, body: {body}'
+        message = f"status_code: {status_code}, model_name: {model_name}, body: {body}"
         super().__init__(message)
 
 
