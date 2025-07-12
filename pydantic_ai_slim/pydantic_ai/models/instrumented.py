@@ -350,20 +350,27 @@ class InstrumentedModel(WrapperModel):
 
     @staticmethod
     def model_attributes(model: Model):
+        # Cache frequently accessed properties
+        system = model.system
+        model_name = model.model_name
+        base_url = model.base_url
+
         attributes: dict[str, AttributeValue] = {
-            GEN_AI_SYSTEM_ATTRIBUTE: model.system,
-            GEN_AI_REQUEST_MODEL_ATTRIBUTE: model.model_name,
+            GEN_AI_SYSTEM_ATTRIBUTE: system,
+            GEN_AI_REQUEST_MODEL_ATTRIBUTE: model_name,
         }
-        if base_url := model.base_url:
+        if base_url:
             try:
                 parsed = urlparse(base_url)
-            except Exception:  # pragma: no cover
-                pass
-            else:
-                if parsed.hostname:  # pragma: no branch
-                    attributes['server.address'] = parsed.hostname
-                if parsed.port:  # pragma: no branch
-                    attributes['server.port'] = parsed.port
+            except Exception:
+                return attributes  # Skip URL attributes if urlparse fails
+
+            hostname = parsed.hostname
+            port = parsed.port
+            if hostname is not None:
+                attributes['server.address'] = hostname
+            if port is not None:
+                attributes['server.port'] = port
 
         return attributes
 
