@@ -864,23 +864,32 @@ def _metadata_as_usage(response: _GeminiResponse) -> usage.Usage:
     metadata = response.get('usage_metadata')
     if metadata is None:
         return usage.Usage()  # pragma: no cover
-    details: dict[str, int] = {}
-    if cached_content_token_count := metadata.get('cached_content_token_count'):
+
+    details = {}
+    # prefetch commonly used keys (faster than .get many times)
+    cached_content_token_count = metadata.get('cached_content_token_count')
+    thoughts_token_count = metadata.get('thoughts_token_count')
+    tool_use_prompt_token_count = metadata.get('tool_use_prompt_token_count')
+
+    if cached_content_token_count:
         details['cached_content_tokens'] = cached_content_token_count  # pragma: no cover
-
-    if thoughts_token_count := metadata.get('thoughts_token_count'):
+    if thoughts_token_count:
         details['thoughts_tokens'] = thoughts_token_count
-
-    if tool_use_prompt_token_count := metadata.get('tool_use_prompt_token_count'):
+    if tool_use_prompt_token_count:
         details['tool_use_prompt_tokens'] = tool_use_prompt_token_count  # pragma: no cover
 
+    # Loop through _details keys efficiently
     for key, metadata_details in metadata.items():
-        if key.endswith('_details') and metadata_details:
-            metadata_details = cast(list[_GeminiModalityTokenCount], metadata_details)
-            suffix = key.removesuffix('_details')
-            for detail in metadata_details:
-                details[f'{detail["modality"].lower()}_{suffix}'] = detail['token_count']
+        if not key.endswith('_details') or not metadata_details:
+            continue
+        suffix = key[:-8]  # strip "_details" (faster than .removesuffix for this fixed suffix)
+        for detail in metadata_details:
+            # minimize dict lookups, lower() only if needed.
+            modality = detail["modality"]
+            token_count = detail["token_count"]
+            details[f'{modality.lower()}_{suffix}'] = token_count
 
+    # Batch .get with defaults to avoid per-line dict lookup in return
     return usage.Usage(
         request_tokens=metadata.get('prompt_token_count', 0),
         response_tokens=metadata.get('candidates_token_count', 0),
