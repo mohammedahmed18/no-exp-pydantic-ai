@@ -57,13 +57,18 @@ TOKEN_HISTOGRAM_BOUNDARIES = (1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 26214
 
 def instrument_model(model: Model, instrument: InstrumentationSettings | bool) -> Model:
     """Instrument a model with OpenTelemetry/logfire."""
-    if instrument and not isinstance(model, InstrumentedModel):
-        if instrument is True:
-            instrument = InstrumentationSettings()
+    if not instrument or isinstance(model, InstrumentedModel):
+        return model
 
-        model = InstrumentedModel(model, instrument)
+    global _INSTRUMENTATION_SETTINGS_SINGLETON
+    if instrument is True:
+        if _INSTRUMENTATION_SETTINGS_SINGLETON is None:
+            _INSTRUMENTATION_SETTINGS_SINGLETON = InstrumentationSettings()
+        settings = _INSTRUMENTATION_SETTINGS_SINGLETON
+    else:
+        settings = instrument
 
-    return model
+    return InstrumentedModel(model, settings)
 
 
 @dataclass(init=False)
@@ -386,3 +391,5 @@ class InstrumentedModel(WrapperModel):
                 return str(value)
             except Exception as e:
                 return f'Unable to serialize: {e}'
+
+_INSTRUMENTATION_SETTINGS_SINGLETON = None
