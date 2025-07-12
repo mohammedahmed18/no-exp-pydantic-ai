@@ -17,24 +17,24 @@ from ._run_context import AgentDepsT, RunContext
 from .exceptions import ModelRetry, UnexpectedModelBehavior
 
 __all__ = (
-    'AgentDepsT',
-    'DocstringFormat',
-    'RunContext',
-    'SystemPromptFunc',
-    'ToolFuncContext',
-    'ToolFuncPlain',
-    'ToolFuncEither',
-    'ToolParams',
-    'ToolPrepareFunc',
-    'ToolsPrepareFunc',
-    'Tool',
-    'ObjectJsonSchema',
-    'ToolDefinition',
+    "AgentDepsT",
+    "DocstringFormat",
+    "RunContext",
+    "SystemPromptFunc",
+    "ToolFuncContext",
+    "ToolFuncPlain",
+    "ToolFuncEither",
+    "ToolParams",
+    "ToolPrepareFunc",
+    "ToolsPrepareFunc",
+    "Tool",
+    "ObjectJsonSchema",
+    "ToolDefinition",
 )
 
 from .messages import ToolReturnPart
 
-ToolParams = ParamSpec('ToolParams', default=...)
+ToolParams = ParamSpec("ToolParams", default=...)
 """Retrieval function param spec."""
 
 SystemPromptFunc = Union[
@@ -58,7 +58,9 @@ ToolFuncPlain = Callable[ToolParams, Any]
 
 Usage `ToolPlainFunc[ToolParams]`.
 """
-ToolFuncEither = Union[ToolFuncContext[AgentDepsT, ToolParams], ToolFuncPlain[ToolParams]]
+ToolFuncEither = Union[
+    ToolFuncContext[AgentDepsT, ToolParams], ToolFuncPlain[ToolParams]
+]
 """Either kind of tool function.
 
 This is just a union of [`ToolFuncContext`][pydantic_ai.tools.ToolFuncContext] and
@@ -66,7 +68,9 @@ This is just a union of [`ToolFuncContext`][pydantic_ai.tools.ToolFuncContext] a
 
 Usage `ToolFuncEither[AgentDepsT, ToolParams]`.
 """
-ToolPrepareFunc: TypeAlias = 'Callable[[RunContext[AgentDepsT], ToolDefinition], Awaitable[ToolDefinition | None]]'
+ToolPrepareFunc: TypeAlias = (
+    "Callable[[RunContext[AgentDepsT], ToolDefinition], Awaitable[ToolDefinition | None]]"
+)
 """Definition of a function that can prepare a tool definition at call time.
 
 See [tool docs](../tools.md#tool-prepare) for more information.
@@ -95,7 +99,7 @@ Usage `ToolPrepareFunc[AgentDepsT]`.
 """
 
 ToolsPrepareFunc: TypeAlias = (
-    'Callable[[RunContext[AgentDepsT], list[ToolDefinition]], Awaitable[list[ToolDefinition] | None]]'
+    "Callable[[RunContext[AgentDepsT], list[ToolDefinition]], Awaitable[list[ToolDefinition] | None]]"
 )
 """Definition of a function that can prepare the tool definition of all tools for each step.
 This is useful if you want to customize the definition of multiple tools or you want to register
@@ -125,7 +129,7 @@ Usage `ToolsPrepareFunc[AgentDepsT]`.
 """
 
 
-DocstringFormat = Literal['google', 'numpy', 'sphinx', 'auto']
+DocstringFormat = Literal["google", "numpy", "sphinx", "auto"]
 """Supported docstring formats.
 
 * `'google'` — [Google-style](https://google.github.io/styleguide/pyguide.html#381-docstrings) docstrings.
@@ -134,22 +138,24 @@ DocstringFormat = Literal['google', 'numpy', 'sphinx', 'auto']
 * `'auto'` — Automatically infer the format based on the structure of the docstring.
 """
 
-A = TypeVar('A')
+A = TypeVar("A")
 
 
 class GenerateToolJsonSchema(GenerateJsonSchema):
     def typed_dict_schema(self, schema: core_schema.TypedDictSchema) -> JsonSchemaValue:
         s = super().typed_dict_schema(schema)
-        total = schema.get('total')
-        if 'additionalProperties' not in s and (total is True or total is None):
-            s['additionalProperties'] = False
+        total = schema.get("total")
+        if "additionalProperties" not in s and (total is True or total is None):
+            s["additionalProperties"] = False
         return s
 
-    def _named_required_fields_schema(self, named_required_fields: Sequence[tuple[str, bool, Any]]) -> JsonSchemaValue:
+    def _named_required_fields_schema(
+        self, named_required_fields: Sequence[tuple[str, bool, Any]]
+    ) -> JsonSchemaValue:
         # Remove largely-useless property titles
         s = super()._named_required_fields_schema(named_required_fields)
-        for p in s.get('properties', {}):
-            s['properties'][p].pop('title', None)
+        for p in s.get("properties", {}):
+            s["properties"][p].pop("title", None)
         return s
 
 
@@ -181,18 +187,18 @@ class Tool(Generic[AgentDepsT]):
 
     def __init__(
         self,
-        function: ToolFuncEither[AgentDepsT],
+        function: "ToolFuncEither[AgentDepsT]",
         *,
         takes_ctx: bool | None = None,
         max_retries: int | None = None,
         name: str | None = None,
         description: str | None = None,
-        prepare: ToolPrepareFunc[AgentDepsT] | None = None,
-        docstring_format: DocstringFormat = 'auto',
+        prepare: "ToolPrepareFunc[AgentDepsT]" | None = None,
+        docstring_format: "DocstringFormat" = "auto",
         require_parameter_descriptions: bool = False,
-        schema_generator: type[GenerateJsonSchema] = GenerateToolJsonSchema,
+        schema_generator: type[GenerateJsonSchema] = None,
         strict: bool | None = None,
-        function_schema: _function_schema.FunctionSchema | None = None,
+        function_schema: "_function_schema.FunctionSchema" | None = None,
     ):
         """Create a new tool instance.
 
@@ -247,18 +253,37 @@ class Tool(Generic[AgentDepsT]):
                 See [`ToolDefinition`][pydantic_ai.tools.ToolDefinition] for more info.
             function_schema: The function schema to use for the tool. If not provided, it will be generated.
         """
+        if schema_generator is None:
+            from pydantic_ai.tools import GenerateToolJsonSchema
+
+            schema_generator = GenerateToolJsonSchema
+
         self.function = function
-        self.function_schema = function_schema or _function_schema.function_schema(
-            function,
-            schema_generator,
-            takes_ctx=takes_ctx,
-            docstring_format=docstring_format,
-            require_parameter_descriptions=require_parameter_descriptions,
-        )
-        self.takes_ctx = self.function_schema.takes_ctx
+        # Only generate function_schema if not given, and only once per instance
+        if function_schema is None:
+            fs = _function_schema.function_schema(
+                function,
+                schema_generator,
+                takes_ctx=takes_ctx,
+                docstring_format=docstring_format,
+                require_parameter_descriptions=require_parameter_descriptions,
+            )
+            self.function_schema = fs
+            # Common attribute assignments (hoisted for speed)
+            self.takes_ctx = fs.takes_ctx
+            self.description = (
+                description if description is not None else fs.description
+            )
+        else:
+            self.function_schema = function_schema
+            self.takes_ctx = function_schema.takes_ctx
+            self.description = (
+                description if description is not None else function_schema.description
+            )
+
+        # These assignments do not depend on other parameters
         self.max_retries = max_retries
-        self.name = name or function.__name__
-        self.description = description or self.function_schema.description
+        self.name = name if name is not None else function.__name__
         self.prepare = prepare
         self.docstring_format = docstring_format
         self.require_parameter_descriptions = require_parameter_descriptions
@@ -286,7 +311,8 @@ class Tool(Generic[AgentDepsT]):
         Returns:
             A Pydantic tool that calls the function
         """
-        function_schema = _function_schema.FunctionSchema(
+        # Use simple static schema validator since no validation of kwargs is performed
+        fn_schema = _function_schema.FunctionSchema(
             function=function,
             description=description,
             validator=SchemaValidator(schema=core_schema.any_schema()),
@@ -294,16 +320,17 @@ class Tool(Generic[AgentDepsT]):
             takes_ctx=False,
             is_async=_utils.is_async_callable(function),
         )
-
         return cls(
             function,
             takes_ctx=False,
             name=name,
             description=description,
-            function_schema=function_schema,
+            function_schema=fn_schema,
         )
 
-    async def prepare_tool_def(self, ctx: RunContext[AgentDepsT]) -> ToolDefinition | None:
+    async def prepare_tool_def(
+        self, ctx: RunContext[AgentDepsT]
+    ) -> ToolDefinition | None:
         """Get the tool definition.
 
         By default, this method creates a tool definition, then either returns it, or calls `self.prepare`
@@ -337,38 +364,46 @@ class Tool(Generic[AgentDepsT]):
         See <https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/#execute-tool-span>.
         """
         span_attributes = {
-            'gen_ai.tool.name': self.name,
+            "gen_ai.tool.name": self.name,
             # NOTE: this means `gen_ai.tool.call.id` will be included even if it was generated by pydantic-ai
-            'gen_ai.tool.call.id': message.tool_call_id,
-            **({'tool_arguments': message.args_as_json_str()} if include_content else {}),
-            'logfire.msg': f'running tool: {self.name}',
+            "gen_ai.tool.call.id": message.tool_call_id,
+            **(
+                {"tool_arguments": message.args_as_json_str()}
+                if include_content
+                else {}
+            ),
+            "logfire.msg": f"running tool: {self.name}",
             # add the JSON schema so these attributes are formatted nicely in Logfire
-            'logfire.json_schema': json.dumps(
+            "logfire.json_schema": json.dumps(
                 {
-                    'type': 'object',
-                    'properties': {
+                    "type": "object",
+                    "properties": {
                         **(
                             {
-                                'tool_arguments': {'type': 'object'},
-                                'tool_response': {'type': 'object'},
+                                "tool_arguments": {"type": "object"},
+                                "tool_response": {"type": "object"},
                             }
                             if include_content
                             else {}
                         ),
-                        'gen_ai.tool.name': {},
-                        'gen_ai.tool.call.id': {},
+                        "gen_ai.tool.name": {},
+                        "gen_ai.tool.call.id": {},
                     },
                 }
             ),
         }
-        with tracer.start_as_current_span('running tool', attributes=span_attributes) as span:
+        with tracer.start_as_current_span(
+            "running tool", attributes=span_attributes
+        ) as span:
             response = await self._run(message, run_context)
             if include_content and span.is_recording():
                 span.set_attribute(
-                    'tool_response',
-                    response.model_response_str()
-                    if isinstance(response, ToolReturnPart)
-                    else response.model_response(),
+                    "tool_response",
+                    (
+                        response.model_response_str()
+                        if isinstance(response, ToolReturnPart)
+                        else response.model_response()
+                    ),
                 )
 
             return response
@@ -379,7 +414,7 @@ class Tool(Generic[AgentDepsT]):
         try:
             validator = self.function_schema.validator
             if isinstance(message.args, str):
-                args_dict = validator.validate_json(message.args or '{}')
+                args_dict = validator.validate_json(message.args or "{}")
             else:
                 args_dict = validator.validate_python(message.args or {})
         except ValidationError as e:
@@ -408,7 +443,9 @@ class Tool(Generic[AgentDepsT]):
     ) -> _messages.RetryPromptPart:
         self.current_retry += 1
         if self.max_retries is None or self.current_retry > self.max_retries:
-            raise UnexpectedModelBehavior(f'Tool exceeded max retries count of {self.max_retries}') from exc
+            raise UnexpectedModelBehavior(
+                f"Tool exceeded max retries count of {self.max_retries}"
+            ) from exc
         else:
             if isinstance(exc, ValidationError):
                 content = exc.errors(include_url=False, include_context=False)

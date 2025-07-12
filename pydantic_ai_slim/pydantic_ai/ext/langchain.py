@@ -2,7 +2,7 @@ from typing import Any, Protocol
 
 from pydantic.json_schema import JsonSchemaValue
 
-from pydantic_ai.tools import Tool
+from pydantic_ai.tools import Tool as BaseTool, Tool
 
 
 class LangChainTool(Protocol):
@@ -23,7 +23,7 @@ class LangChainTool(Protocol):
     def run(self, *args: Any, **kwargs: Any) -> str: ...
 
 
-__all__ = ('tool_from_langchain',)
+__all__ = ("tool_from_langchain",)
 
 
 def tool_from_langchain(langchain_tool: LangChainTool) -> Tool:
@@ -35,27 +35,46 @@ def tool_from_langchain(langchain_tool: LangChainTool) -> Tool:
     Returns:
         A Pydantic AI tool that corresponds to the LangChain tool.
     """
-    function_name = langchain_tool.name
-    function_description = langchain_tool.description
-    inputs = langchain_tool.args.copy()
-    required = sorted({name for name, detail in inputs.items() if 'default' not in detail})
-    schema: JsonSchemaValue = langchain_tool.get_input_jsonschema()
-    if 'additionalProperties' not in schema:
-        schema['additionalProperties'] = False
-    if required:
-        schema['required'] = required
+    # Localize attribute and method lookups for speed
+    name = langchain_tool.name
+    description = langchain_tool.description
+    args_dict = langchain_tool.args
+    get_input_jsonschema = langchain_tool.get_input_jsonschema
 
-    defaults = {name: detail['default'] for name, detail in inputs.items() if 'default' in detail}
+    schema = get_input_jsonschema()
+    # Use direct assignment and only set required if there are any
+    # Avoid repeated obj lookups and dict comprehensions
+    required_list = []
+    defaults = {}
+    for key, detail in args_dict.items():
+        if "default" in detail:
+            defaults[key] = detail["default"]
+        else:
+            required_list.append(key)
+    if "additionalProperties" not in schema:
+        schema["additionalProperties"] = False
+    if required_list:
+        schema["required"] = sorted(required_list)
 
-    # restructures the arguments to match langchain tool run
     def proxy(*args: Any, **kwargs: Any) -> str:
-        assert not args, 'This should always be called with kwargs'
-        kwargs = defaults | kwargs
-        return langchain_tool.run(kwargs)
+        # This function should only be called with kwargs
+        assert not args, "This should always be called with kwargs"
+        if defaults:
+            # Create a merged dict without copying unless needed
+            if not kwargs:
+                merged_kwargs = defaults
+            elif not defaults:
+                merged_kwargs = kwargs
+            else:
+                merged_kwargs = defaults.copy()
+                merged_kwargs.update(kwargs)
+            return langchain_tool.run(merged_kwargs)
+        else:
+            return langchain_tool.run(kwargs)
 
-    return Tool.from_schema(
+    return BaseTool.from_schema(
         function=proxy,
-        name=function_name,
-        description=function_description,
+        name=name,
+        description=description,
         json_schema=schema,
     )
