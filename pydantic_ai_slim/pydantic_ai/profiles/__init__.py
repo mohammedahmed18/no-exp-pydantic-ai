@@ -1,6 +1,6 @@
 from __future__ import annotations as _annotations
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import MISSING, dataclass, fields, replace
 from textwrap import dedent
 from typing import Callable, Union
 
@@ -20,7 +20,7 @@ class ModelProfile:
     """Whether the model supports JSON schema output."""
     supports_json_object_output: bool = False
     """Whether the model supports JSON object output."""
-    default_structured_output_mode: StructuredOutputMode = 'tool'
+    default_structured_output_mode: StructuredOutputMode = "tool"
     """The default structured output mode to use for the model."""
     prompted_output_template: str = dedent(
         """
@@ -46,12 +46,31 @@ class ModelProfile:
         """Update this ModelProfile (subclass) instance with the non-default values from another ModelProfile instance."""
         if not profile:
             return self
-        field_names = set(f.name for f in fields(self))
-        non_default_attrs = {
-            f.name: getattr(profile, f.name)
-            for f in fields(profile)
-            if f.name in field_names and getattr(profile, f.name) != f.default
+
+        # Precompute field defaults for quick lookup
+        self_fields = fields(self)
+        default_map = {
+            f.name: (
+                f.default
+                if f.default is not MISSING
+                else f.default_factory if f.default_factory is not MISSING else MISSING
+            )
+            for f in self_fields
         }
+
+        # Only consider fields present in both, whose values are *not* default
+        non_default_attrs = {}
+        for f in self_fields:
+            name = f.name
+            if hasattr(profile, name):
+                value = getattr(profile, name)
+                default = default_map[name]
+                # If default is a function (default_factory), call it for comparison.
+                if callable(default):
+                    default = default()
+                if value != default:
+                    non_default_attrs[name] = value
+
         return replace(self, **non_default_attrs)
 
 
