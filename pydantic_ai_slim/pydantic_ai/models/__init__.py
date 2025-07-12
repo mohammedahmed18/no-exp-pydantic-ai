@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from functools import cache, cached_property
+from functools import lru_cache, cache, cached_property
 from typing import Generic, TypeVar, overload
 
 import httpx
@@ -30,6 +30,7 @@ from ..profiles._json_schema import JsonSchemaTransformer
 from ..settings import ModelSettings
 from ..tools import ToolDefinition
 from ..usage import Usage
+import json
 
 KnownModelName = TypeAliasType(
     'KnownModelName',
@@ -765,6 +766,35 @@ def _customize_tool_def(transformer: type[JsonSchemaTransformer], t: ToolDefinit
 
 
 def _customize_output_object(transformer: type[JsonSchemaTransformer], o: OutputObjectDefinition):
-    schema_transformer = transformer(o.json_schema, strict=True)
-    son_schema = schema_transformer.walk()
+    # Check if schema is cacheable/hashable
+    try:
+        son_schema = _transform_schema_cached(transformer, o.json_schema)
+    except Exception:
+        # fallback, original behavior if any problem
+        schema_transformer = transformer(o.json_schema, strict=True)
+        son_schema = schema_transformer.walk()
     return replace(o, json_schema=son_schema)
+
+
+# Helper to make a schema hashable for caching
+def _json_schema_cache_key(schema):
+    # If already a string, use as-is; else, serialize deterministically
+    if isinstance(schema, str):
+        return schema
+    try:
+        return json.dumps(schema, sort_keys=True, separators=(',', ':'))
+    except Exception:
+        # fallback, non-cacheable
+        return None
+
+def _transform_schema_cached(transformer_cls, schema):
+    key = _json_schema_cache_key(schema)
+    if key is not None:
+        return _transform_schema_lru(transformer_cls, key)
+    # fallback, not cacheable
+    return transformer_cls(schema, strict=True).walk()
+
+@lru_cache(maxsize=64)
+def _transform_schema_lru(transformer_cls, schema_json: str):
+    schema = json.loads(schema_json)
+    return transformer_cls(schema, strict=True).walk()
