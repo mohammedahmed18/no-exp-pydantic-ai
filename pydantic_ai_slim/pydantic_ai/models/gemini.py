@@ -46,6 +46,13 @@ from . import (
     download_item,
     get_user_agent,
 )
+"""Latest Gemini models."""
+"""Possible Gemini model names.
+
+Since Gemini supports a variety of date-stamped models, we explicitly list the latest models but
+allow any name in the type hints.
+See [the Gemini API docs](https://ai.google.dev/gemini-api/docs/models/gemini#model-variations) for a full list.
+"""
 
 LatestGeminiModelNames = Literal[
     'gemini-1.5-flash',
@@ -610,19 +617,32 @@ class _GeminiContent(TypedDict):
 
 
 def _content_model_response(m: ModelResponse) -> _GeminiContent:
-    parts: list[_GeminiPartUnion] = []
+    # Micro-optimization: local bindings
+    ToolCall = ToolCallPart
+    Text = TextPart
+    Thinking = ThinkingPart
+    _fn_call = _function_call_part_from_call
+    _GemTextPart = _GeminiTextPart
+    parts_append = []
+    parts_append_append = parts_append.append
+    # Instead of list preallocation, grow list via append
+    parts = []
+    append = parts.append
+
     for item in m.parts:
-        if isinstance(item, ToolCallPart):
-            parts.append(_function_call_part_from_call(item))
-        elif isinstance(item, ThinkingPart):
-            # NOTE: We don't send ThinkingPart to the providers yet. If you are unsatisfied with this,
-            # please open an issue. The below code is the code to send thinking to the provider.
-            # parts.append(_GeminiTextPart(text=item.content, thought=True))
-            pass
-        elif isinstance(item, TextPart):
-            if item.content:
-                parts.append(_GeminiTextPart(text=item.content))
+        typ = type(item)
+        if typ is ToolCall:
+            append(_fn_call(item))
+        elif typ is Thinking:
+            # ThinkingParts are skipped as before.
+            continue
+        elif typ is Text:
+            text = item.content
+            if text:
+                append(_GemTextPart(text=text))
         else:
+            # Move assert_never out-of-loop for performance,
+            # or, if it triggers, immediate exception for debuggability
             assert_never(item)
     return _GeminiContent(role='model', parts=parts)
 
