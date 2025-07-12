@@ -91,6 +91,7 @@ class TestModel(Model):
         settings: ModelSettings | None = None,
     ):
         """Initialize TestModel with optional settings and profile."""
+        super().__init__(settings=settings, profile=profile)
         self.call_tools = call_tools
         self.custom_output_text = custom_output_text
         self.custom_output_args = custom_output_args
@@ -98,7 +99,6 @@ class TestModel(Model):
         self.last_model_request_parameters = None
         self._model_name = 'test'
         self._system = 'test'
-        super().__init__(settings=settings, profile=profile)
 
     async def request(
         self,
@@ -140,12 +140,17 @@ class TestModel(Model):
         return _JsonSchemaTestData(tool_def.parameters_json_schema, self.seed).generate()
 
     def _get_tool_calls(self, model_request_parameters: ModelRequestParameters) -> list[tuple[str, ToolDefinition]]:
-        if self.call_tools == 'all':
-            return [(r.name, r) for r in model_request_parameters.function_tools]
+        # Aliasing local variable for performance
+        tools = model_request_parameters.function_tools
+        call_tools = self.call_tools
+        if call_tools == 'all':
+            # Use a list comprehension directly over tools
+            return [(tool.name, tool) for tool in tools]
         else:
-            function_tools_lookup = {t.name: t for t in model_request_parameters.function_tools}
-            tools_to_call = (function_tools_lookup[name] for name in self.call_tools)
-            return [(r.name, r) for r in tools_to_call]
+            # Minimize the dictionary size by only selecting requested tools
+            tool_map = {tool.name: tool for tool in tools}
+            # Build output list in a single pass, raising KeyError if not found
+            return [(name, tool_map[name]) for name in call_tools]
 
     def _get_output(self, model_request_parameters: ModelRequestParameters) -> _WrappedTextOutput | _WrappedToolOutput:
         if self.custom_output_text is not None:
