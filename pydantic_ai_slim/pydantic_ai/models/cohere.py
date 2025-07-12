@@ -32,6 +32,7 @@ from . import (
     ModelRequestParameters,
     check_allow_model_requests,
 )
+from cohere import ChatResponse
 
 try:
     from cohere import (
@@ -298,23 +299,35 @@ def _map_usage(response: ChatResponse) -> usage.Usage:
     u = response.usage
     if u is None:
         return usage.Usage()
-    else:
-        details: dict[str, int] = {}
-        if u.billed_units is not None:
-            if u.billed_units.input_tokens:  # pragma: no branch
-                details['input_tokens'] = int(u.billed_units.input_tokens)
-            if u.billed_units.output_tokens:
-                details['output_tokens'] = int(u.billed_units.output_tokens)
-            if u.billed_units.search_units:  # pragma: no cover
-                details['search_units'] = int(u.billed_units.search_units)
-            if u.billed_units.classifications:  # pragma: no cover
-                details['classifications'] = int(u.billed_units.classifications)
+    details: dict[str, int] = {}
 
-        request_tokens = int(u.tokens.input_tokens) if u.tokens and u.tokens.input_tokens else None
-        response_tokens = int(u.tokens.output_tokens) if u.tokens and u.tokens.output_tokens else None
-        return usage.Usage(
-            request_tokens=request_tokens,
-            response_tokens=response_tokens,
-            total_tokens=(request_tokens or 0) + (response_tokens or 0),
-            details=details,
-        )
+    billed_units = u.billed_units
+    if billed_units is not None:
+        # extract all possibly present units only once
+        bu_input = billed_units.input_tokens
+        if bu_input:
+            details['input_tokens'] = int(bu_input)
+        bu_output = billed_units.output_tokens
+        if bu_output:
+            details['output_tokens'] = int(bu_output)
+        bu_search = billed_units.search_units
+        if bu_search:
+            details['search_units'] = int(bu_search)
+        bu_class = billed_units.classifications
+        if bu_class:
+            details['classifications'] = int(bu_class)
+
+    toks = u.tokens
+    req_tokens, resp_tokens = None, None
+    if toks:
+        itok = toks.input_tokens
+        otok = toks.output_tokens
+        req_tokens = int(itok) if itok else None
+        resp_tokens = int(otok) if otok else None
+
+    return usage.Usage(
+        request_tokens=req_tokens,
+        response_tokens=resp_tokens,
+        total_tokens=(req_tokens or 0) + (resp_tokens or 0),
+        details=details,
+    )
