@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
+from rich.console import Console
+from rich.syntax import Syntax
 from typing_inspection.introspection import get_literal_values
 
 from . import __version__
@@ -314,25 +316,34 @@ class CustomAutoSuggest(AutoSuggestFromHistory):
 def handle_slash_command(
     ident_prompt: str, messages: list[ModelMessage], multiline: bool, console: Console, code_theme: str
 ) -> tuple[int | None, bool]:
+    # Fast-path: avoid calling console.print multiple times
     if ident_prompt == '/markdown':
         try:
             parts = messages[-1].parts
         except IndexError:
             console.print('[dim]No markdown output available.[/dim]')
         else:
-            console.print('[dim]Markdown output of last question:[/dim]\n')
-            for part in parts:
-                if part.part_kind == 'text':
-                    console.print(
-                        Syntax(
-                            part.content,
-                            lexer='markdown',
-                            theme=code_theme,
-                            word_wrap=True,
-                            background_color='default',
-                        )
+            # Concatenate all markdown "text" parts for single print if possible
+            text_blocks = [
+                part.content for part in parts if part.part_kind == 'text'
+            ]
+            if text_blocks:
+                console.print('[dim]Markdown output of last question:[/dim]\n')
+                syntax_blocks = [
+                    Syntax(
+                        content,
+                        lexer='markdown',
+                        theme=code_theme,
+                        word_wrap=True,
+                        background_color='default',
                     )
-
+                    for content in text_blocks
+                ]
+                # Print all Syntax blocks at once instead of single-by-single
+                console.print(*syntax_blocks)
+            else:
+                # Nothing to print, but give the section header
+                console.print('[dim]Markdown output of last question:[/dim]\n')
     elif ident_prompt == '/multiline':
         multiline = not multiline
         if multiline:
