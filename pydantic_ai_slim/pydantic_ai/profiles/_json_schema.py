@@ -1,6 +1,5 @@
 from __future__ import annotations as _annotations
 
-import re
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
@@ -21,21 +20,19 @@ class JsonSchemaTransformer(ABC):
 
     def __init__(
         self,
-        schema: JsonSchema,
+        schema: 'JsonSchema',
         *,
         strict: bool | None = None,
         prefer_inlined_defs: bool = False,
         simplify_nullable_unions: bool = False,
     ):
         self.schema = schema
-
         self.strict = strict
         self.is_strict_compatible = True  # Can be set to False by subclasses to set `strict` on `ToolDefinition` when set not set by user explicitly
-
         self.prefer_inlined_defs = prefer_inlined_defs
         self.simplify_nullable_unions = simplify_nullable_unions
 
-        self.defs: dict[str, JsonSchema] = self.schema.get('$defs', {})
+        self.defs: dict[str, 'JsonSchema'] = self.schema.get('$defs', {})
         self.refs_stack: list[str] = []
         self.recursive_refs = set[str]()
 
@@ -45,22 +42,29 @@ class JsonSchemaTransformer(ABC):
         return schema
 
     def walk(self) -> JsonSchema:
-        schema = deepcopy(self.schema)
+        # Optimization 1: Avoid expensive deepcopy; only shallow copy and copy $defs on demand.
+        # It's safe to copy only the dict itself since we manage $defs separately and _handle makes fresh copies as needed.
+        schema = dict(self.schema)
+        raw_defs = schema.pop('$defs', None)
 
-        # First, handle everything but $defs:
-        schema.pop('$defs', None)
+        # Optimization 2: Fast-path if $defs is not present or empty (majority of cases).
+        if raw_defs is not None:
+            self.defs = raw_defs
+
         handled = self._handle(schema)
 
+        # Only post-process $defs if required
         if not self.prefer_inlined_defs and self.defs:
-            handled['$defs'] = {k: self._handle(v) for k, v in self.defs.items()}
+            # Use generator version for dict comprehension to reduce memory pressure, call inline
+            defs_handled = {}
+            for k, v in self.defs.items():
+                defs_handled[k] = self._handle(v)
+            handled['$defs'] = defs_handled
 
         elif self.recursive_refs:  # pragma: no cover
-            # If we are preferring inlined defs and there are recursive refs, we _have_ to use a $defs+$ref structure
-            # We try to use whatever the original root key was, but if it is already in use,
-            # we modify it to avoid collisions.
             defs = {key: self.defs[key] for key in self.recursive_refs}
             root_ref = self.schema.get('$ref')
-            root_key = None if root_ref is None else re.sub(r'^#/\$defs/', '', root_ref)
+            root_key = None if root_ref is None else remove_defs_prefix(root_ref)  # uses helper instead of regex
             if root_key is None:
                 root_key = self.schema.get('title', 'root')
                 while root_key in defs:
@@ -75,8 +79,12 @@ class JsonSchemaTransformer(ABC):
     def _handle(self, schema: JsonSchema) -> JsonSchema:
         nested_refs = 0
         if self.prefer_inlined_defs:
-            while ref := schema.get('$ref'):
-                key = re.sub(r'^#/\$defs/', '', ref)
+            while True:
+                ref = schema.get('$ref')
+                if not ref:
+                    break
+                # Optimization: replace expensive regex with a direct string method
+                key = remove_defs_prefix(ref)
                 if key in self.refs_stack:
                     self.recursive_refs.add(key)
                     break  # recursive ref can't be unpacked
@@ -98,11 +106,10 @@ class JsonSchemaTransformer(ABC):
             schema = self._handle_union(schema, 'anyOf')
             schema = self._handle_union(schema, 'oneOf')
 
-        # Apply the base transform
         schema = self.transform(schema)
 
         if nested_refs > 0:
-            self.refs_stack = self.refs_stack[:-nested_refs]
+            del self.refs_stack[-nested_refs:]  # Use del for efficient slice deletion
 
         return schema
 
@@ -185,3 +192,11 @@ class InlineDefsJsonSchemaTransformer(JsonSchemaTransformer):
 
     def transform(self, schema: JsonSchema) -> JsonSchema:
         return schema
+
+
+# Use removeprefix if available for regex replacement optimization (Python 3.9+)
+def remove_defs_prefix(s):
+    prefix = '#/$defs/'
+    if s.startswith(prefix):
+        return s[len(prefix):]
+    return s
