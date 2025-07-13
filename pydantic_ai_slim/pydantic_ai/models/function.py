@@ -320,12 +320,12 @@ def _estimate_string_tokens(content: str | Sequence[UserContent]) -> int:
     if not content:
         return 0
     if isinstance(content, str):
-        return len(re.split(r'[\s",.:]+', content.strip()))
+        return _fast_word_count(content)
     else:
         tokens = 0
         for part in content:
             if isinstance(part, str):
-                tokens += len(re.split(r'[\s",.:]+', part.strip()))
+                tokens += _fast_word_count(part)
             # TODO(Marcelo): We need to study how we can estimate the tokens for these types of content.
             if isinstance(part, (AudioUrl, ImageUrl)):
                 tokens += 0
@@ -334,3 +334,9 @@ def _estimate_string_tokens(content: str | Sequence[UserContent]) -> int:
             else:
                 tokens += 0
         return tokens
+
+def _fast_word_count(s: str) -> int:
+    # Replace specified punctuation with spaces, then split
+    return len(s.strip().translate(_TRANSLATION_TABLE).split())
+
+_TRANSLATION_TABLE = str.maketrans({' ': ' ', '"': ' ', ',': ' ', '.': ' ', ':': ' '})

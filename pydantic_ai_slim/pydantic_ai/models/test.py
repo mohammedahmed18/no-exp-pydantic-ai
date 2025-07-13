@@ -453,3 +453,9 @@ class _JsonSchemaTestData:
 def _get_string_usage(text: str) -> Usage:
     response_tokens = _estimate_string_tokens(text)
     return Usage(response_tokens=response_tokens, total_tokens=response_tokens)
+
+def _fast_word_count(s: str) -> int:
+    # Replace specified punctuation with spaces, then split
+    return len(s.strip().translate(_TRANSLATION_TABLE).split())
+
+_TRANSLATION_TABLE = str.maketrans({' ': ' ', '"': ' ', ',': ' ', '.': ' ', ':': ' '})
