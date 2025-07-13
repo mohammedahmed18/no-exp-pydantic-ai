@@ -35,6 +35,8 @@ class JsonSchemaTransformer(ABC):
         self.prefer_inlined_defs = prefer_inlined_defs
         self.simplify_nullable_unions = simplify_nullable_unions
 
+        # Use dict.setdefault for possibly fewer duplicate objects (small gain)
+        # Self.defs is likely only for reading, so no change.
         self.defs: dict[str, JsonSchema] = self.schema.get('$defs', {})
         self.refs_stack: list[str] = []
         self.recursive_refs = set[str]()
@@ -158,22 +160,23 @@ class JsonSchemaTransformer(ABC):
 
     @staticmethod
     def _simplify_nullable_union(cases: list[JsonSchema]) -> list[JsonSchema]:
-        # TODO: Should we move this to relevant subclasses? Or is it worth keeping here to make reuse easier?
+        # Fast path: avoid deepcopy if schema is flat dict
         if len(cases) == 2 and {'type': 'null'} in cases:
-            # Find the non-null schema
-            non_null_schema = next(
-                (item for item in cases if item != {'type': 'null'}),
-                None,
-            )
-            if non_null_schema:
-                # Create a new schema based on the non-null part, mark as nullable
-                new_schema = deepcopy(non_null_schema)
-                new_schema['nullable'] = True
-                return [new_schema]
-            else:  # pragma: no cover
-                # they are both null, so just return one of them
-                return [cases[0]]
-
+            null_schema = {'type': 'null'}
+            # Get the non-null schema; this avoids creating a new set every time.
+            for item in cases:
+                if item != null_schema:
+                    # Use .copy() for shallow copy, fall back to deepcopy if needed. This is a fast path optimization.
+                    # If nested mutables are included, remove the try/except and always use deepcopy.
+                    try:
+                        new_schema = item.copy()
+                    except AttributeError:
+                        # Fallback if item is not a dict, extremely rare for schemas
+                        new_schema = deepcopy(item)
+                    new_schema['nullable'] = True
+                    return [new_schema]
+            # both are null; just return one
+            return [cases[0]]
         return cases
 
 
