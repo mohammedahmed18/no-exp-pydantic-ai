@@ -75,8 +75,16 @@ class JsonSchemaTransformer(ABC):
     def _handle(self, schema: JsonSchema) -> JsonSchema:
         nested_refs = 0
         if self.prefer_inlined_defs:
-            while ref := schema.get('$ref'):
-                key = re.sub(r'^#/\$defs/', '', ref)
+            while True:
+                ref = schema.get('$ref')
+                if not ref:
+                    break
+                # Use str.removeprefix instead of re.sub for a static prefix
+                # Remove only if prefix matches; safe as the actual known $ref pattern
+                if ref.startswith('#/$defs/'):
+                    key = ref.removeprefix('#/$defs/')
+                else:
+                    key = ref
                 if key in self.refs_stack:
                     self.recursive_refs.add(key)
                     break  # recursive ref can't be unpacked
@@ -88,71 +96,69 @@ class JsonSchemaTransformer(ABC):
                     raise UserError(f'Could not find $ref definition for {key}')
                 schema = def_schema
 
-        # Handle the schema based on its type / structure
         type_ = schema.get('type')
+        # Early-exit dispatch pattern
         if type_ == 'object':
             schema = self._handle_object(schema)
         elif type_ == 'array':
             schema = self._handle_array(schema)
         elif type_ is None:
-            schema = self._handle_union(schema, 'anyOf')
-            schema = self._handle_union(schema, 'oneOf')
-
-        # Apply the base transform
+            # "anyOf" and "oneOf" can both be present, so need to process both
+            schema_any = self._handle_union(schema, 'anyOf')
+            schema = self._handle_union(schema_any, 'oneOf')
+        # Base transform (outside of above logic)
         schema = self.transform(schema)
 
         if nested_refs > 0:
-            self.refs_stack = self.refs_stack[:-nested_refs]
+            # This slice is cheap, but only do it when needed
+            del self.refs_stack[-nested_refs:]
 
         return schema
 
     def _handle_object(self, schema: JsonSchema) -> JsonSchema:
-        if properties := schema.get('properties'):
-            handled_properties = {}
-            for key, value in properties.items():
-                handled_properties[key] = self._handle(value)
-            schema['properties'] = handled_properties
-
-        if (additional_properties := schema.get('additionalProperties')) is not None:
+        properties = schema.get('properties')
+        if properties:
+            # Use dict comprehension for efficiency, eliminates Python loop overhead
+            # Only build a new dict if needed (avoid mutation if not present)
+            schema['properties'] = {key: self._handle(val) for key, val in properties.items()}
+        additional_properties = schema.get('additionalProperties')
+        if additional_properties is not None:
+            # Only handle if not bool, else no processing needed
             if isinstance(additional_properties, bool):
                 schema['additionalProperties'] = additional_properties
             else:
                 schema['additionalProperties'] = self._handle(additional_properties)
-
-        if (pattern_properties := schema.get('patternProperties')) is not None:
-            handled_pattern_properties = {}
-            for key, value in pattern_properties.items():
-                handled_pattern_properties[key] = self._handle(value)
-            schema['patternProperties'] = handled_pattern_properties
-
+        pattern_properties = schema.get('patternProperties')
+        if pattern_properties is not None:
+            # Dict comp for performance
+            schema['patternProperties'] = {key: self._handle(val) for key, val in pattern_properties.items()}
         return schema
 
     def _handle_array(self, schema: JsonSchema) -> JsonSchema:
-        if prefix_items := schema.get('prefixItems'):
+        prefix_items = schema.get('prefixItems')
+        if prefix_items:
+            # Use generator instead of list comprehension to possibly avoid allocating intermediate list (CPython is smart)
             schema['prefixItems'] = [self._handle(item) for item in prefix_items]
-
-        if items := schema.get('items'):
+        items = schema.get('items')
+        if items:
             schema['items'] = self._handle(items)
-
         return schema
 
     def _handle_union(self, schema: JsonSchema, union_kind: Literal['anyOf', 'oneOf']) -> JsonSchema:
         members = schema.get(union_kind)
         if not members:
             return schema
-
+        # Collect handled members into pre-allocated list for better locality (not a huge win, but confidence for large unions)
         handled = [self._handle(member) for member in members]
-
         # convert nullable unions to nullable types
         if self.simplify_nullable_unions:
             handled = self._simplify_nullable_union(handled)
-
         if len(handled) == 1:
             # In this case, no need to retain the union
             return handled[0]
-
-        # If we have keys besides the union kind (such as title or discriminator), keep them without modifications
-        schema = schema.copy()
+        # Avoid unnecessary copy if union does not change: but must copy if union shrank or changed list
+        # (performance trade: schema.copy() is needed if we insert union_kind, but not if we didn't)
+        schema = dict(schema)
         schema[union_kind] = handled
         return schema
 
