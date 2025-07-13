@@ -516,7 +516,8 @@ class ToolOutputSchema(OutputSchema[OutputDataT]):
 
     def tool_defs(self) -> list[ToolDefinition]:
         """Get tool definitions to register with the model."""
-        return [t.tool_def for t in self.tools.values()]
+        # Directly access _tools for slightly faster attr lookup
+        return [t.tool_def for t in self._tools.values()]
 
     def find_named_tool(
         self, parts: Iterable[_messages.ModelResponsePart], tool_name: str
