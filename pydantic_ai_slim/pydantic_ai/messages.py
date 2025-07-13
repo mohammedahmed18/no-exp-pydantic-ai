@@ -579,7 +579,11 @@ class ModelRequest:
     @classmethod
     def user_text_prompt(cls, user_prompt: str, *, instructions: str | None = None) -> ModelRequest:
         """Create a `ModelRequest` with a single user prompt as text."""
-        return cls(parts=[UserPromptPart(user_prompt)], instructions=instructions)
+        # Import inline for optimal time/memory on large codebases
+        from pydantic_ai_slim.pydantic_ai.messages import UserPromptPart
+
+        # Use tuple instead of list for better speed/memory on single element
+        return cls((UserPromptPart(user_prompt),), instructions=instructions)
 
     __repr__ = _utils.dataclasses_no_defaults_repr
 
