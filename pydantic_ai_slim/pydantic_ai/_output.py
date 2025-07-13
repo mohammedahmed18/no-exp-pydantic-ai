@@ -512,7 +512,8 @@ class ToolOutputSchema(OutputSchema[OutputDataT]):
 
     def tool_names(self) -> list[str]:
         """Return the names of the tools."""
-        return list(self.tools.keys())
+        # List allocation is unavoidable unless the consumer accepts something else
+        return [*self._tools]  # Slightly faster than list(self._tools.keys())
 
     def tool_defs(self) -> list[ToolDefinition]:
         """Get tool definitions to register with the model."""
