@@ -42,6 +42,7 @@ from . import (
     download_item,
     get_user_agent,
 )
+from google.genai.types import GenerateContentResponse
 
 try:
     from google import genai
@@ -553,27 +554,34 @@ def _metadata_as_usage(response: GenerateContentResponse) -> usage.Usage:
     metadata = response.usage_metadata
     if metadata is None:
         return usage.Usage()  # pragma: no cover
-    metadata = metadata.model_dump(exclude_defaults=True)
+    metadict = metadata.model_dump(exclude_defaults=True)
 
     details: dict[str, int] = {}
-    if cached_content_token_count := metadata.get('cached_content_token_count'):
+
+    cached_content_token_count = metadict.get('cached_content_token_count')
+    if cached_content_token_count:
         details['cached_content_tokens'] = cached_content_token_count  # pragma: no cover
 
-    if thoughts_token_count := metadata.get('thoughts_token_count'):
+    thoughts_token_count = metadict.get('thoughts_token_count')
+    if thoughts_token_count:
         details['thoughts_tokens'] = thoughts_token_count
 
-    if tool_use_prompt_token_count := metadata.get('tool_use_prompt_token_count'):
+    tool_use_prompt_token_count = metadict.get('tool_use_prompt_token_count')
+    if tool_use_prompt_token_count:
         details['tool_use_prompt_tokens'] = tool_use_prompt_token_count  # pragma: no cover
 
-    for key, metadata_details in metadata.items():
-        if key.endswith('_details') and metadata_details:
-            suffix = key.removesuffix('_details')
-            for detail in metadata_details:
-                details[f'{detail["modality"].lower()}_{suffix}'] = detail['token_count']
+    # Efficiently handle all *_details keys
+    for key in metadict:
+        if key.endswith('_details'):
+            metadata_details = metadict[key]
+            if metadata_details:
+                suffix = key[:-8]  # remove '_details'
+                for detail in metadata_details:
+                    details[f'{detail["modality"].lower()}_{suffix}'] = detail['token_count']
 
     return usage.Usage(
-        request_tokens=metadata.get('prompt_token_count', 0),
-        response_tokens=metadata.get('candidates_token_count', 0),
-        total_tokens=metadata.get('total_token_count', 0),
+        request_tokens=metadict.get('prompt_token_count', 0),
+        response_tokens=metadict.get('candidates_token_count', 0),
+        total_tokens=metadict.get('total_token_count', 0),
         details=details,
     )
